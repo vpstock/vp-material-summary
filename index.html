@@ -58,6 +58,17 @@ table.m td.none{color:var(--muted);font-family:var(--sans);font-style:normal}
 .sp .none{font-size:12px;color:var(--muted);margin:0}
 .foot{margin-top:18px;font-size:10.5px;color:var(--muted);line-height:1.5}
 .sheet[hidden]{display:none}
+table.h{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}
+table.h th{text-align:left;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
+table.h td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}
+table.h td.n{text-align:right;font-weight:600;color:var(--ink)}
+table.h td.act{white-space:nowrap;text-align:right}
+table.h tr.cur td{background:var(--blue50)}
+button.mini{padding:5px 10px;font-size:12px}
+.hint{font-size:12px;color:var(--muted);margin:0 0 4px}
+.hbar{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+.hbar>div{flex:1;min-width:200px}
+.hits{font-size:11px;color:var(--muted);display:block;margin-top:2px}
 @media(max-width:640px){.row,.cards{grid-template-columns:1fr}.sheet{padding:20px 14px}table.m{font-size:11px}table.m td.code{white-space:normal}}
 @page{size:A4;margin:12mm}
 @media print{
@@ -88,6 +99,18 @@ table.m td.none{color:var(--muted);font-family:var(--sans);font-style:normal}
   </div>
   <div class="btns"><button id="print" type="button" disabled>Print or save as PDF</button><span class="msg" id="msg">No file chosen yet.</span></div>
   <div class="warn" id="warn" hidden></div>
+ </section>
+ <section class="panel noprint" id="hist">
+  <h2>History</h2>
+  <p class="hint">Every list you summarise is saved here automatically, on this computer and browser. Open one to see or print it again.</p>
+  <div class="hbar">
+   <div><label for="hq">Find a material</label><input type="text" id="hq" autocomplete="off" placeholder="e.g. flex duct, Polyaire, 38SLS10"></div>
+   <button class="ghost" id="hexp" type="button">Download backup</button>
+   <button class="ghost" id="himp" type="button">Restore backup</button>
+   <input type="file" id="hfile" accept="application/json,.json" hidden>
+  </div>
+  <div id="hlist"></div>
+  <div class="msg" id="hmsg"></div>
  </section>
  <section class="sheet" id="sheet" hidden></section>
 </div>
@@ -157,6 +180,65 @@ function render(){
  $("print").disabled=false;
  msg(rows.length+" item"+(rows.length===1?"":"s")+" with a quantity from "+state.fileName+".");
 }
+
+var HKEY="vp-material-history-v1",curId=null,pendingDel=null;
+function hload(){try{var a=JSON.parse(localStorage.getItem(HKEY)||"[]");return Array.isArray(a)?a:[]}catch(e){return []}}
+function hsave(a){try{localStorage.setItem(HKEY,JSON.stringify(a));return true}catch(e){$("hmsg").textContent="This browser would not save the history. Download a backup instead.";return false}}
+function entryItems(){var V=state.vals;return TABLE.filter(function(r){return (V[r.f]||"").trim()!==""}).map(function(r){return {f:r.f,q:V[r.f].trim()}})}
+function addHistory(){
+ var items=entryItems(),notes=(state.vals["Notes"]||"").trim(),a=hload();
+ var sig=state.fileName+"|"+JSON.stringify(items)+"|"+notes+"|"+(state.vals["Date1_af_date"]||"");
+ var ex=a.filter(function(h){return h.sig===sig})[0];
+ if(ex){ex.savedAt=new Date().toISOString();curId=ex.id}
+ else{var id="h"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  a.unshift({id:id,sig:sig,savedAt:new Date().toISOString(),fileName:state.fileName,job:$("job").value.trim(),jobNo:$("jobno").value.trim(),
+   reqDate:(state.vals["Date1_af_date"]||"").trim(),small:!!state.checks["Check Box4"],large:!!state.checks["Check Box2"],notes:notes,items:items});curId=id}
+ hsave(a);drawHistory();
+}
+function updCur(){if(!curId)return;var a=hload(),h=a.filter(function(x){return x.id===curId})[0];if(!h)return;h.job=$("job").value.trim();h.jobNo=$("jobno").value.trim();hsave(a);drawHistory()}
+function fmtWhen(iso){var d=new Date(iso);if(isNaN(d))return "";return d.toLocaleDateString("en-AU",{day:"numeric",month:"short",year:"numeric"})+" "+d.toLocaleTimeString("en-AU",{hour:"numeric",minute:"2-digit"})}
+function nameOf(f){for(var i=0;i<TABLE.length;i++)if(TABLE[i].f===f)return TABLE[i];return null}
+function drawHistory(){
+ var box=$("hlist");box.textContent="";var a=hload(),q=$("hq").value.trim().toLowerCase();
+ if(!a.length){box.appendChild(el("p","hint","Nothing saved yet. Choose a material list above and it will appear here."));return}
+ var shown=0,t=el("table","h"),th=el("thead"),hr=el("tr");
+ ["Saved","File","Job","Items",""].forEach(function(x){hr.appendChild(el("th",null,x))});th.appendChild(hr);t.appendChild(th);
+ var tb=el("tbody");
+ a.forEach(function(h){
+  var hits=[];
+  if(q){h.items.forEach(function(it){var r=nameOf(it.f);if(r&&(r.n+" "+(r.s||"")+" "+(r.k||"")).toLowerCase().indexOf(q)>=0)hits.push(r.n+" ("+it.q+")")});
+   if(!hits.length&&!((h.job||"")+" "+h.fileName+" "+(h.notes||"")).toLowerCase().includes(q))return}
+  shown++;
+  var tr=el("tr",h.id===curId?"cur":"");
+  tr.appendChild(el("td",null,fmtWhen(h.savedAt)));
+  var tf=el("td",null,h.fileName);if(hits.length)tf.appendChild(el("span","hits",hits.slice(0,4).join("; ")+(hits.length>4?" and "+(hits.length-4)+" more":"")));tr.appendChild(tf);
+  tr.appendChild(el("td",null,[h.job,h.jobNo&&("No. "+h.jobNo)].filter(Boolean).join(", ")||"–"));
+  tr.appendChild(el("td","n",String(h.items.length)));
+  var ac=el("td","act"),ob=el("button","ghost mini","Open");ob.type="button";ob.addEventListener("click",function(){openEntry(h.id)});ac.appendChild(ob);
+  var rb=el("button","ghost mini",pendingDel===h.id?"Click again to remove":"Remove");rb.type="button";rb.style.marginLeft="6px";
+  rb.addEventListener("click",function(){if(pendingDel===h.id){var b=hload().filter(function(x){return x.id!==h.id});hsave(b);pendingDel=null;if(curId===h.id)curId=null;drawHistory()}else{pendingDel=h.id;drawHistory()}});
+  ac.appendChild(rb);tr.appendChild(ac);tb.appendChild(tr)});
+ t.appendChild(tb);
+ if(!shown){box.appendChild(el("p","hint","Nothing in the history matches that."));return}
+ box.appendChild(t);
+}
+function openEntry(id){
+ var h=hload().filter(function(x){return x.id===id})[0];if(!h)return;
+ var V={};h.items.forEach(function(it){V[it.f]=it.q});V["Notes"]=h.notes||"";V["Date1_af_date"]=h.reqDate||"";
+ state={vals:V,checks:{"Check Box4":!!h.small,"Check Box2":!!h.large},fileName:h.fileName};
+ $("job").value=h.job||"";$("jobno").value=h.jobNo||"";curId=id;pendingDel=null;warn("");render();drawHistory();
+ $("sheet").scrollIntoView({behavior:"smooth",block:"start"});
+}
+$("hq").addEventListener("input",function(){pendingDel=null;drawHistory()});
+$("hexp").addEventListener("click",function(){
+ var blob=new Blob([JSON.stringify({app:"vp-material-summary",saved:hload()},null,1)],{type:"application/json"});
+ var u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download="material-summary-history.json";document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(u)},1000)});
+$("himp").addEventListener("click",function(){$("hfile").click()});
+$("hfile").addEventListener("change",function(){var f=$("hfile").files[0];$("hfile").value="";if(!f)return;
+ f.text().then(function(t){var d=JSON.parse(t),inc=d&&d.saved;if(!Array.isArray(inc))throw new Error("bad");
+  var a=hload(),have={};a.forEach(function(h){have[h.id]=1});var n=0;
+  inc.forEach(function(h){if(h&&h.id&&Array.isArray(h.items)&&!have[h.id]){a.push(h);n++}});
+  a.sort(function(x,y){return (y.savedAt||"").localeCompare(x.savedAt||"")});hsave(a);drawHistory();$("hmsg").textContent=n+" saved list"+(n===1?"":"s")+" restored."}).catch(function(){$("hmsg").textContent="That is not a history backup file."})});
 async function load(file){
  if(!file)return;
  $("print").disabled=true;$("sheet").hidden=true;warn("");
@@ -168,7 +250,7 @@ async function load(file){
   state={vals:r.vals,checks:r.checks,fileName:file.name};
   var known=0;TABLE.forEach(function(x){if(x.f in r.vals)known++});
   if(known<TABLE.length*0.9)warn("This does not look like Job Material List Rev.4. Only "+known+" of "+TABLE.length+" known fields were found, so items may be missing or wrong. Check the result against the form.");
-  render();
+  render();addHistory();
  }catch(e){msg("Could not read that PDF. "+(e&&e.message?e.message:""),true)}
 }
 var drop=$("drop"),fi=$("file");
@@ -178,7 +260,7 @@ fi.addEventListener("change",function(){load(fi.files[0]);fi.value=""});
 ["dragenter","dragover"].forEach(function(n){drop.addEventListener(n,function(e){e.preventDefault();drop.classList.add("over")})});
 ["dragleave","drop"].forEach(function(n){drop.addEventListener(n,function(e){e.preventDefault();drop.classList.remove("over")})});
 drop.addEventListener("drop",function(e){var f=e.dataTransfer&&e.dataTransfer.files[0];if(f)load(f)});
-["job","jobno"].forEach(function(i){$(i).addEventListener("input",render)});
+["job","jobno"].forEach(function(i){$(i).addEventListener("input",function(){render();updCur()})});drawHistory();
 $("print").addEventListener("click",function(){
  var old=document.title,j=$("job").value.trim();document.title="Rough-in material summary"+(j?" - "+j:"");
  window.print();setTimeout(function(){document.title=old},800)});
